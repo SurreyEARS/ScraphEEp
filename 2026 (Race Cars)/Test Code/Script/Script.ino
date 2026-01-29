@@ -4,39 +4,14 @@
 
 ControllerPtr myControllers[BP32_MAX_CONTROLLERS];
 
-// **Motor and Pin Definitions (from ScraphEEp.ino)**
-const int pwmPin1 = 18;  // Signal output pin for Left Motor (PWM pin)
-const int pwmPin2 = 12;  // Signal output pin for Right Motor (PWM pin)
-const int digPin1 = 17;  // Digital pin for Left Motor Direction A
-const int digPin2 = 16;  // Digital pin for Left Motor Direction B
-const int digPin3 = 14;  // Digital pin for Right Motor Direction A
-const int digPin4 = 13;  // Digital pin for Right Motor Direction B
-const int channel1 = 0;  // LEDC channel for PWM of Left Motor
-const int channel2 = 1;  // LEDC channel for PWM of Right Motor
-
-// **Control Variables**
-// Keeping control enabled by default as per the simplification request
-bool isControlEnabled = true; 
-
-// The following functions are no longer needed but kept as stubs if they are called elsewhere.
-// They will be empty or simplified.
-
-// Forward declarations
-void onConnectedController(ControllerPtr ctl);
-void onDisconnectedController(ControllerPtr ctl);
-void processGamepad(ControllerPtr gamepad);
-void sendPWMSignal(int channel, int pulseWidth);
-
-// The button check and password functions are removed or simplified to stubs
-// to adhere to the strict "no button presses" and "no password" requirement.
-void passwordCheck(ControllerPtr gamepad) { /* Removed */ }
-bool checkLeftBumperPress(ControllerPtr gamepad) { return false; }
-bool checkRightBumperPress(ControllerPtr gamepad) { return false; }
-bool checkButtonPress(ControllerPtr gamepad, int buttonFlag) { return false; }
-bool checkUpPress(ControllerPtr gamepad) { return false; }
-bool checkLeftPress(ControllerPtr gamepad) { return false; }
-bool checkRightPress(ControllerPtr gamepad) { return false; }
-
+const int pwmPin1 = 18;  // Signal output pin for Motor 1 (PWM pin)
+const int pwmPin2 = 12; // Signal output pin for Motor 2 (PWM pin)
+const int digPin1 = 17; // Digital pin for Motor control (e.g., direction)
+const int digPin2 = 16; // Digital pin for Motor control (e.g., direction)
+const int digPin3 = 14; // Digital pin for Motor control (e.g., enable)
+const int digPin4 = 13; // Digital pin for Motor control (e.g., enable)
+const int channel1 = 0; // LEDC channel for PWM of Motor 1
+const int channel2 = 1; // LEDC channel for PWM of Motor 2
 
 void setup() {
   Serial.begin(9600);
@@ -88,7 +63,6 @@ void onConnectedController(ControllerPtr ctl) {
       Serial.print("CALLBACK: Controller connected, index=");
       Serial.println(i);
       myControllers[i] = ctl;
-      isControlEnabled = true; // Control enabled on connect
       return;
     }
   }
@@ -104,7 +78,6 @@ void onDisconnectedController(ControllerPtr ctl) {
       sendPWMSignal(channel1, 0);
       sendPWMSignal(channel2, 0);
       myControllers[i] = nullptr;
-      isControlEnabled = false; // Disable control
       return;
     }
   }
@@ -114,8 +87,6 @@ void onDisconnectedController(ControllerPtr ctl) {
 
 // --- THE UPDATED processGamepad FUNCTION ---
 void processGamepad(ControllerPtr gamepad) {
-  // isControlEnabled check is kept simplified as there is no password check
-  // and we assume control is always active when connected.
   if(gamepad && gamepad->isConnected()) { 
     // Read left stick Y for throttle, right stick X for turning
     int throttle = -gamepad->axisY();  // Invert so up is forward
