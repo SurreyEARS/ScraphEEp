@@ -78,8 +78,9 @@ void onDisconnectedController(ControllerPtr ctl) {
 
 void processGamepad(ControllerPtr gamepad) {
   // Read joystick axes for motor control
-    int axisY1 = gamepad->axisY();  // Control Motor 1
-    int axisY2 = gamepad->axisRY(); // Control Motor 2
+  // Add a minus (-) sign to axis values below to reverse the direction of rotation of the motor
+    int axisY1 = gamepad->axisY();  // Control Motor 1 (Left)
+    int axisY2 = gamepad->axisRY(); // Control Motor 2 (Right)
 
     // Calculate pulse width for Motor 1 (Left)
     int pulseWidth1 = 0; // Default to neutral
