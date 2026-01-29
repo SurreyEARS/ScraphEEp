@@ -13,10 +13,13 @@ const int digPin4 = 13; // Digital pin for Motor control (e.g., enable)
 const int channel1 = 0; // LEDC channel for PWM of Motor 1
 const int channel2 = 1; // LEDC channel for PWM of Motor 2
 
+// --- TUNING PARAMETER ---
+// Increase this to make turning faster/sharper. 
+// 1.0 = Default, 1.5 = Aggressive, 2.0 = Very twitchy
+const float turnSensitivity = 1.5; 
+
 void setup() {
   Serial.begin(9600);
-
-  // Print firmware and MAC address info
   Serial.println("Initializing Bluepad32...");
   Serial.print("Firmware version installed: ");
   Serial.println(BP32.firmwareVersion());
@@ -25,24 +28,17 @@ void setup() {
   Serial.print("BD Address: ");
   for (int i = 0; i < 6; i++) {
     Serial.print(addr[i], HEX);
-    if (i < 5)
-      Serial.print(":");
-    else
-      Serial.println();
+    if (i < 5) Serial.print(":");
+    else Serial.println();
   }
 
-  // Initialize Bluepad32
   BP32.setup(&onConnectedController, &onDisconnectedController);
 
-  // Setup PWM for Motor 1 (Left)
-  ledcSetup(channel1, 200, 16); // 200 Hz frequency, 16-bit resolution
-  ledcAttachPin(pwmPin1, channel1); // Attach PWM channel to pin
+  ledcSetup(channel1, 200, 16); 
+  ledcAttachPin(pwmPin1, channel1); 
+  ledcSetup(channel2, 200, 16); 
+  ledcAttachPin(pwmPin2, channel2); 
 
-  // Setup PWM for Motor 2 (Right)
-  ledcSetup(channel2, 200, 16); // 200 Hz frequency, 16-bit resolution
-  ledcAttachPin(pwmPin2, channel2); // Attach PWM channel to pin
-
-  // Setup Digital Pins for H-Bridge Direction
   pinMode(digPin1, OUTPUT);
   pinMode(digPin2, OUTPUT);
   pinMode(digPin3, OUTPUT);
@@ -50,10 +46,9 @@ void setup() {
   digitalWrite(digPin1, LOW);
   digitalWrite(digPin2, LOW);
   digitalWrite(digPin3, LOW);
-  digitalWrite(digPin4, LOW); // Motors stopped initially
+  digitalWrite(digPin4, LOW); 
 
-  // Initial motor signal (stop)
-  sendPWMSignal(channel1, 0); // 0 pulse width (stop)
+  sendPWMSignal(channel1, 0); 
   sendPWMSignal(channel2, 0);
 }
 
@@ -66,7 +61,6 @@ void onConnectedController(ControllerPtr ctl) {
       return;
     }
   }
-  Serial.println("CALLBACK: No empty slot for new controller");
 }
 
 void onDisconnectedController(ControllerPtr ctl) {
@@ -74,31 +68,49 @@ void onDisconnectedController(ControllerPtr ctl) {
     if (myControllers[i] == ctl) {
       Serial.print("CALLBACK: Controller disconnected, index=");
       Serial.println(i);
-      // Stop motors
       sendPWMSignal(channel1, 0);
       sendPWMSignal(channel2, 0);
       myControllers[i] = nullptr;
       return;
     }
   }
-  Serial.println("CALLBACK: Disconnected controller not found in myControllers");
 }
 
 void processGamepad(ControllerPtr gamepad) {
   if(gamepad && gamepad->isConnected()) { 
     
     // --- INPUTS ---
-    // Left Stick Y for throttle (Forward/Back)
     int throttle = -gamepad->axisY(); 
     
-    // Right Stick X for steering (Left/Right)
-    int turn = gamepad->axisRX();
+    // Apply Sensitivity Boost to the turn
+    int turn = gamepad->axisRX() * turnSensitivity;
 
     // --- MIXING ---
     int leftSpeed = throttle + turn;
     int rightSpeed = throttle - turn;
 
-    // --- CONSTRAIN ---
+    // --- OVERFLOW HANDLING (The "Skim" Logic) ---
+    // If we exceed 512, subtract the excess from the OTHER motor.
+    // This ensures that if we turn hard, we force a spin.
+    int maxVal = 512;
+
+    if (leftSpeed > maxVal) {
+      rightSpeed -= (leftSpeed - maxVal);
+      leftSpeed = maxVal;
+    } else if (leftSpeed < -maxVal) {
+      rightSpeed -= (leftSpeed + maxVal);
+      leftSpeed = -maxVal;
+    }
+
+    if (rightSpeed > maxVal) {
+      leftSpeed -= (rightSpeed - maxVal);
+      rightSpeed = maxVal;
+    } else if (rightSpeed < -maxVal) {
+      leftSpeed -= (rightSpeed + maxVal);
+      rightSpeed = -maxVal;
+    }
+
+    // Final safety constrain
     leftSpeed = constrain(leftSpeed, -512, 512);
     rightSpeed = constrain(rightSpeed, -512, 512);
     
@@ -120,18 +132,16 @@ void processGamepad(ControllerPtr gamepad) {
     }
     sendPWMSignal(channel1, pulseWidth1);
 
-    // RIGHT MOTOR (Motor 2) - *** FIXED HERE ***
+    // RIGHT MOTOR (Motor 2)
     int pulseWidth2 = abs(rightSpeed) * 9; 
 
-    // I have swapped the HIGH/LOW logic below to match your physical wiring
+    // Using the FIXED pin logic from previous step
     if (rightSpeed > 10) { // Forward
-      // Swapped from previous code:
-      digitalWrite(digPin3, LOW);  // Was HIGH
-      digitalWrite(digPin4, HIGH); // Was LOW
+      digitalWrite(digPin3, LOW); 
+      digitalWrite(digPin4, HIGH);
     } else if (rightSpeed < -10) { // Reverse
-      // Swapped from previous code:
-      digitalWrite(digPin3, HIGH); // Was LOW
-      digitalWrite(digPin4, LOW);  // Was HIGH
+      digitalWrite(digPin3, HIGH);
+      digitalWrite(digPin4, LOW); 
     } else { // Stop
       digitalWrite(digPin3, LOW);
       digitalWrite(digPin4, LOW);
@@ -142,33 +152,19 @@ void processGamepad(ControllerPtr gamepad) {
 }
 
 void loop() {
-  BP32.update(); // Update controller states
-
+  BP32.update(); 
   for (int i = 0; i < BP32_MAX_CONTROLLERS; i++) {
-    ControllerPtr myController = myControllers[i];
-    if (myController) { // Check if slot is occupied
-      processGamepad(myController);
+    if (myControllers[i]) { 
+      processGamepad(myControllers[i]);
     }
   }
 }
 
-// Function to convert pulse width (speed) to duty cycle and send PWM signal
 void sendPWMSignal(int channel, int pulseWidth) {
   static int lastPulseWidth[2] = {-1, -1}; 
-
-  // Only send the signal if the pulse width has changed
   if (pulseWidth != lastPulseWidth[channel]) {
     int dutyCycle = (pulseWidth * 65536L) / 5000L;
     ledcWrite(channel, dutyCycle);
-
-    // Debug output
-    Serial.print("Motor ");
-    Serial.print(channel + 1);
-    Serial.print(": Speed/Raw Pulse: ");
-    Serial.print(pulseWidth);
-    Serial.print(", Duty cycle: ");
-    Serial.println(dutyCycle);
-
-    lastPulseWidth[channel] = pulseWidth; // Update the last sent pulse width
+    lastPulseWidth[channel] = pulseWidth; 
   }
 }
