@@ -81,7 +81,7 @@ void processGamepad(ControllerPtr gamepad) {
     int axisY1 = gamepad->axisY();  // Control Motor 1
     int axisY2 = gamepad->axisRY(); // Control Motor 2
 
-    // Calculate pulse width for Motor 1
+    // Calculate pulse width for Motor 1 (Left)
     int pulseWidth1 = 0; // Default to neutral
     if (axisY1 < 0) {
       pulseWidth1 = abs(axisY1) * 9; // Forward
@@ -93,7 +93,7 @@ void processGamepad(ControllerPtr gamepad) {
       digitalWrite(digPin2, LOW);
     }
 
-    // Calculate pulse width for Motor 2
+    // Calculate pulse width for Motor 2 (Right)
     int pulseWidth2 = 0; // Default to neutral
     if (axisY2 < 0) {
       pulseWidth2 = abs(axisY2) * 9; // Forward
