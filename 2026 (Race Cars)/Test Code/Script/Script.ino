@@ -84,42 +84,33 @@ void onDisconnectedController(ControllerPtr ctl) {
   Serial.println("CALLBACK: Disconnected controller not found in myControllers");
 }
 
-
-// --- THE UPDATED processGamepad FUNCTION ---
 void processGamepad(ControllerPtr gamepad) {
   if(gamepad && gamepad->isConnected()) { 
-    // Read left stick Y for throttle, right stick X for turning
-    int throttle = -gamepad->axisY();  // Invert so up is forward
+    
+    // --- INPUTS ---
+    // Left Stick Y for throttle (Forward/Back)
+    int throttle = -gamepad->axisY(); 
+    
+    // Right Stick X for steering (Left/Right)
     int turn = gamepad->axisRX();
 
-    // Removed: Gear scaling (scale = 1.0)
-    float scale = 1.0; 
-
-    // Mix throttle and turn to calculate motor speeds (Split Stick Drive)
+    // --- MIXING ---
     int leftSpeed = throttle + turn;
     int rightSpeed = throttle - turn;
 
-    // Clamp the speeds to acceptable range (-512 to 512 for raw axis)
+    // --- CONSTRAIN ---
     leftSpeed = constrain(leftSpeed, -512, 512);
     rightSpeed = constrain(rightSpeed, -512, 512);
     
-    // Apply scale (still 1.0, but kept for completeness of the calculation chain)
-    leftSpeed = (int)(leftSpeed * scale);
-    rightSpeed = (int)(rightSpeed * scale);
+    // --- MOTOR CONTROL LOGIC ---
 
-    // Removed: DPAD gear control
-
-    // Removed: Servo control
-
-    // H-bridge motor control logic (adapted from ScraphEEp.ino)
-
-    // Left Motor (Motor 1) Direction and Speed
-    // Scaling factor '9' is from the original ScraphEEp code's pulse width calculation.
+    // LEFT MOTOR (Motor 1)
     int pulseWidth1 = abs(leftSpeed) * 9; 
-    if (leftSpeed < 0) { // Forward
+    
+    if (leftSpeed > 10) { // Forward
       digitalWrite(digPin1, LOW);
       digitalWrite(digPin2, HIGH);
-    } else if (leftSpeed > 0) { // Reverse
+    } else if (leftSpeed < -10) { // Reverse
       digitalWrite(digPin1, HIGH);
       digitalWrite(digPin2, LOW);
     } else { // Stop
@@ -129,23 +120,25 @@ void processGamepad(ControllerPtr gamepad) {
     }
     sendPWMSignal(channel1, pulseWidth1);
 
-    // Right Motor (Motor 2) Direction and Speed
+    // RIGHT MOTOR (Motor 2) - *** FIXED HERE ***
     int pulseWidth2 = abs(rightSpeed) * 9; 
-    if (rightSpeed < 0) { // Forward
-      digitalWrite(digPin3, HIGH);
-      digitalWrite(digPin4, LOW);
-    } else if (rightSpeed > 0) { // Reverse
-      digitalWrite(digPin3, LOW);
-      digitalWrite(digPin4, HIGH);
+
+    // I have swapped the HIGH/LOW logic below to match your physical wiring
+    if (rightSpeed > 10) { // Forward
+      // Swapped from previous code:
+      digitalWrite(digPin3, LOW);  // Was HIGH
+      digitalWrite(digPin4, HIGH); // Was LOW
+    } else if (rightSpeed < -10) { // Reverse
+      // Swapped from previous code:
+      digitalWrite(digPin3, HIGH); // Was LOW
+      digitalWrite(digPin4, LOW);  // Was HIGH
     } else { // Stop
       digitalWrite(digPin3, LOW);
       digitalWrite(digPin4, LOW);
       pulseWidth2 = 0;
     }
     sendPWMSignal(channel2, pulseWidth2);
-
   } 
-  // Removed: else { passwordCheck(gamepad); }
 }
 
 void loop() {
