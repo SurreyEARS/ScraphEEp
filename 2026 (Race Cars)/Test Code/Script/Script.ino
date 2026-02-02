@@ -173,7 +173,7 @@ void processGamepad(ControllerPtr gamepad) {
       int throttle = -gamepad->axisY(); 
       int turn = gamepad->axisRX() * turnSensitivity;
 
-      // Mixing
+      // Mixing (Swap the + and - values for leftSpeed and rightSpeed if the left and right turning are swapped the wrong way around)
       leftSpeed = throttle + turn;
       rightSpeed = throttle - turn;
 
