@@ -13,6 +13,11 @@ const int digPin4 = 13; // Digital pin for Motor control (e.g., enable)
 const int channel1 = 0; // LEDC channel for PWM of Motor 1
 const int channel2 = 1; // LEDC channel for PWM of Motor 2
 
+// --- DIRECTION CONFIGURATION (EDIT THIS TO FIX MOTORS) ---
+// Change these between 'true' and 'false' if a motor is spinning the wrong way.
+const bool INVERT_MOTOR_1 = false; 
+const bool INVERT_MOTOR_2 = false; 
+
 // --- TUNING PARAMETER (For Split Stick Mode only) ---
 const float turnSensitivity = 1.5; 
 
@@ -24,6 +29,11 @@ enum DriveMode {
 
 // Default to Split Stick
 DriveMode currentMode = MODE_SPLIT_STICK;
+
+// Forward Declaration needed for setup
+void onConnectedController(ControllerPtr ctl);
+void onDisconnectedController(ControllerPtr ctl);
+void sendPWMSignal(int channel, int pulseWidth); // Added forward declaration
 
 void setup() {
   Serial.begin(9600);
@@ -91,29 +101,39 @@ void onDisconnectedController(ControllerPtr ctl) {
 }
 
 // --- HELPER: WRITE MOTOR PINS ---
-// This ensures consistent direction logic for both modes
+// Updated to handle Software Inversion
 void setMotorState(int motorId, int speed) {
   int dirPinA, dirPinB, channel;
+  bool invertThisMotor = false;
   
+  // Assign Pins and check Invert Flag
   if (motorId == 1) { // Left Motor
     dirPinA = digPin1; dirPinB = digPin2; channel = channel1;
+    invertThisMotor = INVERT_MOTOR_1;
   } else { // Right Motor
     dirPinA = digPin3; dirPinB = digPin4; channel = channel2;
+    invertThisMotor = INVERT_MOTOR_2;
   }
 
   int pulseWidth = abs(speed) * 9; 
 
-  if (speed > 10) { // FORWARD
-    // Motor 1 Logic: LOW/HIGH
-    if(motorId == 1) { digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH); }
-    // Motor 2 Logic: LOW/HIGH (Matches the fix from previous code)
-    else             { digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH); }
+  if (speed > 10) { // INTENT: FORWARD
+    if (!invertThisMotor) {
+       // Normal Forward
+       digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH); 
+    } else {
+       // Inverted Forward (Physically Reverse Logic)
+       digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW);
+    }
     
-  } else if (speed < -10) { // REVERSE
-    // Motor 1 Logic: HIGH/LOW
-    if(motorId == 1) { digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW); }
-    // Motor 2 Logic: HIGH/LOW
-    else             { digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW); }
+  } else if (speed < -10) { // INTENT: REVERSE
+    if (!invertThisMotor) {
+       // Normal Reverse
+       digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW);
+    } else {
+       // Inverted Reverse (Physically Forward Logic)
+       digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH);
+    }
 
   } else { // STOP
     digitalWrite(dirPinA, LOW);
@@ -153,7 +173,7 @@ void processGamepad(ControllerPtr gamepad) {
       int throttle = -gamepad->axisY(); 
       int turn = gamepad->axisRX() * turnSensitivity;
 
-      // Mixing
+      // Mixing (Swap the + and - values for leftSpeed and rightSpeed if the left and right turning are swapped the wrong way around)
       leftSpeed = throttle + turn;
       rightSpeed = throttle - turn;
 
