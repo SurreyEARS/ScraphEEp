@@ -1,4 +1,4 @@
-// Split Stick Drive Test Code for ScraphEEp 2026 (Race Cars)
+// Test Code for ScraphEEp 2026 (Race Cars) - REVISED DIRECTION LOGIC
 
 #include <Bluepad32.h>
 
@@ -13,10 +13,27 @@ const int digPin4 = 13; // Digital pin for Motor control (e.g., enable)
 const int channel1 = 0; // LEDC channel for PWM of Motor 1
 const int channel2 = 1; // LEDC channel for PWM of Motor 2
 
-// --- TUNING PARAMETER ---
-// Increase this to make turning faster/sharper. 
-// 1.0 = Default, 1.5 = Aggressive, 2.0 = Very twitchy
+// --- DIRECTION CONFIGURATION (EDIT THIS TO FIX MOTORS) ---
+// Change these between 'true' and 'false' if a motor is spinning the wrong way.
+const bool INVERT_MOTOR_1 = false; 
+const bool INVERT_MOTOR_2 = false; 
+
+// --- TUNING PARAMETER (For Split Stick Mode only) ---
 const float turnSensitivity = 1.5; 
+
+// --- DRIVE MODES ---
+enum DriveMode {
+  MODE_SPLIT_STICK,
+  MODE_TANK
+};
+
+// Default to Split Stick
+DriveMode currentMode = MODE_SPLIT_STICK;
+
+// Forward Declaration needed for setup
+void onConnectedController(ControllerPtr ctl);
+void onDisconnectedController(ControllerPtr ctl);
+void sendPWMSignal(int channel, int pulseWidth); // Added forward declaration
 
 void setup() {
   Serial.begin(9600);
@@ -24,30 +41,37 @@ void setup() {
   Serial.print("Firmware version installed: ");
   Serial.println(BP32.firmwareVersion());
 
+  //Bluetooth MAC Address
   const uint8_t* addr = BP32.localBdAddress();
   Serial.print("BD Address: ");
   for (int i = 0; i < 6; i++) {
     Serial.print(addr[i], HEX);
-    if (i < 5) Serial.print(":");
-    else Serial.println();
+    if (i < 5)
+      Serial.print(":");
+    else
+      Serial.println();
   }
 
+  // Setup Bluepad32
   BP32.setup(&onConnectedController, &onDisconnectedController);
 
+  // Setup PWM Channels
   ledcSetup(channel1, 200, 16); 
   ledcAttachPin(pwmPin1, channel1); 
   ledcSetup(channel2, 200, 16); 
   ledcAttachPin(pwmPin2, channel2); 
 
+  // Setup Digital Pins
   pinMode(digPin1, OUTPUT);
   pinMode(digPin2, OUTPUT);
   pinMode(digPin3, OUTPUT);
   pinMode(digPin4, OUTPUT);
+  
+  // Stop Motors Initially
   digitalWrite(digPin1, LOW);
   digitalWrite(digPin2, LOW);
   digitalWrite(digPin3, LOW);
   digitalWrite(digPin4, LOW); 
-
   sendPWMSignal(channel1, 0); 
   sendPWMSignal(channel2, 0);
 }
@@ -76,78 +100,108 @@ void onDisconnectedController(ControllerPtr ctl) {
   }
 }
 
+// --- HELPER: WRITE MOTOR PINS ---
+// Updated to handle Software Inversion
+void setMotorState(int motorId, int speed) {
+  int dirPinA, dirPinB, channel;
+  bool invertThisMotor = false;
+  
+  // Assign Pins and check Invert Flag
+  if (motorId == 1) { // Left Motor
+    dirPinA = digPin1; dirPinB = digPin2; channel = channel1;
+    invertThisMotor = INVERT_MOTOR_1;
+  } else { // Right Motor
+    dirPinA = digPin3; dirPinB = digPin4; channel = channel2;
+    invertThisMotor = INVERT_MOTOR_2;
+  }
+
+  int pulseWidth = abs(speed) * 9; 
+
+  if (speed > 10) { // INTENT: FORWARD
+    if (!invertThisMotor) {
+       // Normal Forward
+       digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH); 
+    } else {
+       // Inverted Forward (Physically Reverse Logic)
+       digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW);
+    }
+    
+  } else if (speed < -10) { // INTENT: REVERSE
+    if (!invertThisMotor) {
+       // Normal Reverse
+       digitalWrite(dirPinA, HIGH); digitalWrite(dirPinB, LOW);
+    } else {
+       // Inverted Reverse (Physically Forward Logic)
+       digitalWrite(dirPinA, LOW); digitalWrite(dirPinB, HIGH);
+    }
+
+  } else { // STOP
+    digitalWrite(dirPinA, LOW);
+    digitalWrite(dirPinB, LOW);
+    pulseWidth = 0;
+  }
+
+  sendPWMSignal(channel, pulseWidth);
+}
+
 void processGamepad(ControllerPtr gamepad) {
   if(gamepad && gamepad->isConnected()) { 
     
-    // --- INPUTS ---
-    int throttle = -gamepad->axisY(); 
+    // --- 1. CHECK FOR MODE CHANGE ---
+    if (gamepad->dpad() & 0x01) { // DPAD UP
+      if (currentMode != MODE_TANK) {
+        currentMode = MODE_TANK;
+        Serial.println("MODE SWITCHED: TANK CONTROLS");
+      }
+    }
+    if (gamepad->dpad() & 0x02) { // DPAD DOWN
+      if (currentMode != MODE_SPLIT_STICK) {
+        currentMode = MODE_SPLIT_STICK;
+        Serial.println("MODE SWITCHED: SPLIT STICK");
+      }
+    }
+
+    // --- 2. EXECUTE DRIVING LOGIC ---
     
-    // Apply Sensitivity Boost to the turn
-    int turn = gamepad->axisRX() * turnSensitivity;
+    int leftSpeed = 0;
+    int rightSpeed = 0;
 
-    // --- MIXING ---
-    int leftSpeed = throttle + turn;
-    int rightSpeed = throttle - turn;
+    if (currentMode == MODE_SPLIT_STICK) {
+      // ===========================
+      // MODE: SPLIT STICK (ARCADE)
+      // ===========================
+      int throttle = -gamepad->axisY(); 
+      int turn = gamepad->axisRX() * turnSensitivity;
 
-    // --- OVERFLOW HANDLING (The "Skim" Logic) ---
-    // If we exceed 512, subtract the excess from the OTHER motor.
-    // This ensures that if we turn hard, we force a spin.
-    int maxVal = 512;
+      // Mixing
+      leftSpeed = throttle + turn;
+      rightSpeed = throttle - turn;
 
-    if (leftSpeed > maxVal) {
-      rightSpeed -= (leftSpeed - maxVal);
-      leftSpeed = maxVal;
-    } else if (leftSpeed < -maxVal) {
-      rightSpeed -= (leftSpeed + maxVal);
-      leftSpeed = -maxVal;
+      // Overflow / Skim Logic
+      int maxVal = 512;
+      if (leftSpeed > maxVal) { rightSpeed -= (leftSpeed - maxVal); leftSpeed = maxVal; }
+      else if (leftSpeed < -maxVal) { rightSpeed -= (leftSpeed + maxVal); leftSpeed = -maxVal; }
+
+      if (rightSpeed > maxVal) { leftSpeed -= (rightSpeed - maxVal); rightSpeed = maxVal; }
+      else if (rightSpeed < -maxVal) { leftSpeed -= (rightSpeed + maxVal); rightSpeed = -maxVal; }
+    } 
+    else {
+      // ===========================
+      // MODE: TANK CONTROLS
+      // ===========================
+      // Left Stick Y controls Left Motor
+      leftSpeed = -gamepad->axisY();
+      // Right Stick Y controls Right Motor
+      rightSpeed = -gamepad->axisRY();
     }
 
-    if (rightSpeed > maxVal) {
-      leftSpeed -= (rightSpeed - maxVal);
-      rightSpeed = maxVal;
-    } else if (rightSpeed < -maxVal) {
-      leftSpeed -= (rightSpeed + maxVal);
-      rightSpeed = -maxVal;
-    }
-
-    // Final safety constrain
+    // Constrain Final Output
     leftSpeed = constrain(leftSpeed, -512, 512);
     rightSpeed = constrain(rightSpeed, -512, 512);
-    
-    // --- MOTOR CONTROL LOGIC ---
 
-    // LEFT MOTOR (Motor 1)
-    int pulseWidth1 = abs(leftSpeed) * 9; 
-    
-    if (leftSpeed > 10) { // Forward
-      digitalWrite(digPin1, LOW);
-      digitalWrite(digPin2, HIGH);
-    } else if (leftSpeed < -10) { // Reverse
-      digitalWrite(digPin1, HIGH);
-      digitalWrite(digPin2, LOW);
-    } else { // Stop
-      digitalWrite(digPin1, LOW);
-      digitalWrite(digPin2, LOW);
-      pulseWidth1 = 0;
-    }
-    sendPWMSignal(channel1, pulseWidth1);
-
-    // RIGHT MOTOR (Motor 2)
-    int pulseWidth2 = abs(rightSpeed) * 9; 
-
-    // Using the FIXED pin logic from previous step
-    if (rightSpeed > 10) { // Forward
-      digitalWrite(digPin3, LOW); 
-      digitalWrite(digPin4, HIGH);
-    } else if (rightSpeed < -10) { // Reverse
-      digitalWrite(digPin3, HIGH);
-      digitalWrite(digPin4, LOW); 
-    } else { // Stop
-      digitalWrite(digPin3, LOW);
-      digitalWrite(digPin4, LOW);
-      pulseWidth2 = 0;
-    }
-    sendPWMSignal(channel2, pulseWidth2);
+    // Write to motors using helper function
+    setMotorState(1, leftSpeed);
+    setMotorState(2, rightSpeed);
   } 
 }
 
