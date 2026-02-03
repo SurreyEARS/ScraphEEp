@@ -189,6 +189,7 @@ void processGamepad(ControllerPtr gamepad) {
       // ===========================
       // MODE: TANK CONTROLS
       // ===========================
+      // Swap the axisY() and axisRY() to swap the turn direction
       // Left Stick Y controls Left Motor
       leftSpeed = -gamepad->axisY();
       // Right Stick Y controls Right Motor
