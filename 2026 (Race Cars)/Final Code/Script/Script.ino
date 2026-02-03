@@ -46,6 +46,17 @@ void setup() {
   Serial.print("Firmware version installed: ");
   Serial.println(BP32.firmwareVersion());
 
+  //Bluetooth MAC Address
+  const uint8_t* addr = BP32.localBdAddress();
+  Serial.print("BD Address: ");
+  for (int i = 0; i < 6; i++) {
+    Serial.print(addr[i], HEX);
+    if (i < 5)
+      Serial.print(":");
+    else
+      Serial.println();
+  }
+
   BP32.setup(&onConnectedController, &onDisconnectedController);
 
   // Setup PWM
